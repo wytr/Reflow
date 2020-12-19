@@ -34,6 +34,8 @@ unsigned long previous2Time;
 unsigned long secondInterval = 1000;
 unsigned long threeSecondInterval = 3000;
 
+float maxHeat = 300;
+
 #if USE_LV_LOG != 0
 /* Serial debugging */
 void my_print(lv_log_level_t level, const char *file, uint32_t line, const char *dsc)
@@ -99,40 +101,6 @@ bool my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
     return false; /*Return `false` because we are not buffering and no more data to read*/
 }
 
-void printEvent(String Event, lv_event_t event)
-{
-
-    Serial.print(Event);
-    Serial.println(" ");
-
-    switch (event)
-    {
-    case LV_EVENT_PRESSED:
-        Serial.println("Pressed\n");
-        break;
-
-    case LV_EVENT_SHORT_CLICKED:
-        Serial.println("Short clicked\n");
-        break;
-
-    case LV_EVENT_CLICKED:
-        Serial.println("Clicked\n");
-        break;
-
-    case LV_EVENT_LONG_PRESSED:
-        Serial.println("Long press\n");
-        break;
-
-    case LV_EVENT_LONG_PRESSED_REPEAT:
-        Serial.println("Long press repeat\n");
-        break;
-
-    case LV_EVENT_RELEASED:
-        Serial.println("Released\n");
-        break;
-    }
-}
-
 static void profile_handler(lv_obj_t *obj, lv_event_t event)
 {
     if (event == LV_EVENT_VALUE_CHANGED)
@@ -150,13 +118,11 @@ void updateTemperatureLabel(float value)
     snprintf(buffer, sizeof(buffer), "%.2f", value);
     lv_label_set_text(temperature_label, buffer);
 }
-/*void updateTimeLabel(String now)
+
+static void createTable(lv_obj_t *parent, char *temp1, char *temp2, char *time1, char *time2)
 {
-    const char * c = now.c_str();
-    lv_label_set_text(clockLabel, c);
-}*/
-static void createTable(lv_obj_t *parent, const char *temp1, const char *temp2, const char *time1, const char *time2)
-{
+    //TODO Set Profile Settings
+
     lv_obj_t *table = lv_table_create(parent, NULL);
     lv_obj_set_size(table, 200, 150);
     lv_obj_align(table, NULL, LV_ALIGN_CENTER, -5, 0);
@@ -166,25 +132,25 @@ static void createTable(lv_obj_t *parent, const char *temp1, const char *temp2, 
     lv_table_set_col_width(table, 2, 60);
 
     lv_table_set_col_cnt(table, 3);
-    lv_table_set_row_cnt(table, 3);
+    lv_table_set_row_cnt(table, 2);
     /*Fill the first column*/
-    lv_table_set_cell_value(table, 0, 0, "Lab");
-    lv_table_set_cell_value(table, 1, 0, "Soak");
-    lv_table_set_cell_value(table, 2, 0, "Rflw");
+    lv_table_set_cell_value(table, 0, 0, "Soak");
+    lv_table_set_cell_value(table, 1, 0, "Rflw");
 
     /*Fill the second column*/
-    lv_table_set_cell_value(table, 0, 1, "Tem");
-    lv_table_set_cell_value(table, 1, 1, temp1);
-    lv_table_set_cell_value(table, 2, 1, temp2);
+    lv_table_set_cell_value(table, 0, 1, temp1);
+    lv_table_set_cell_value(table, 1, 1, temp2);
 
     /*Fill the third column*/
-    lv_table_set_cell_value(table, 0, 2, "Tim");
-    lv_table_set_cell_value(table, 1, 2, time1);
-    lv_table_set_cell_value(table, 2, 2, time2);
+    lv_table_set_cell_value(table, 0, 2, time1);
+    lv_table_set_cell_value(table, 1, 2, time2);
 }
+
 
 static void createChart(lv_obj_t *parent, int chart1[9], int chart2[9])
 {
+    // TODO create chart from profile Data and from Sensor Values
+
     /*Create a chart*/
     lv_obj_t *chart;
     chart = lv_chart_create(parent, NULL);
@@ -225,18 +191,6 @@ static void createDropdown(lv_obj_t *parent)
     lv_obj_align(ddlist, NULL, LV_ALIGN_IN_TOP_MID, 0, 20);
     lv_obj_set_event_cb(ddlist, profile_handler);
 }
-
-/*
------------------------------------------------------------------------------------------------
- ____    ____    ______  __  __  ____    
-/\  _`\ /\  _`\ /\__  _\/\ \/\ \/\  _`\  
-\ \,\L\_\ \ \L\_\/_/\ \/\ \ \ \ \ \ \L\ \
- \/_\__ \\ \  _\L  \ \ \ \ \ \ \ \ \ ,__/
-   /\ \L\ \ \ \L\ \ \ \ \ \ \ \_\ \ \ \/ 
-   \ `\____\ \____/  \ \_\ \ \_____\ \_\ 
-    \/_____/\/___/    \/_/  \/_____/\/_/ 
-
-*/
 
 void setup()
 {
@@ -288,33 +242,33 @@ void setup()
     lv_tabview_set_anim_time(tv, 50);
     lv_obj_set_size(tv, LV_HOR_RES_MAX, LV_VER_RES_MAX);
     //TABS
-    lv_obj_t *tab0 = lv_tabview_add_tab(tv, LV_SYMBOL_HOME);
-    lv_obj_t *tab1 = lv_tabview_add_tab(tv, LV_SYMBOL_SETTINGS);
-    lv_obj_t *tab2 = lv_tabview_add_tab(tv, LV_SYMBOL_IMAGE);
-    lv_obj_t *tab3 = lv_tabview_add_tab(tv, LV_SYMBOL_WIFI);
+    lv_obj_t *homeTab = lv_tabview_add_tab(tv, LV_SYMBOL_HOME);
+    lv_obj_t *profileTab = lv_tabview_add_tab(tv, LV_SYMBOL_SETTINGS);
+    lv_obj_t *chartTab = lv_tabview_add_tab(tv, LV_SYMBOL_IMAGE);
+    lv_obj_t *miscTab = lv_tabview_add_tab(tv, LV_SYMBOL_WIFI);
 
     // table, dropdown and charts
-    createTable(tab1, "59", "80", "102", "222");
-    createDropdown(tab1);
+    createTable(profileTab, "59", "80", "102", "222");
+    createDropdown(profileTab);
 
     int chart1[9] = {22, 33, 44, 55, 66, 77, 88, 99, 101};
     int chart2[9] = {11, 15, 33, 44, 55, 66, 77, 88, 99};
-    createChart(tab2, chart1, chart2);
+    createChart(chartTab, chart1, chart2);
 
-    temperature_meter = lv_linemeter_create(tab0, NULL);
+    temperature_meter = lv_linemeter_create(homeTab, NULL);
     lv_obj_set_size(temperature_meter, 120, 120);
     lv_obj_align(temperature_meter, NULL, LV_ALIGN_CENTER, 0, 0);
     lv_linemeter_set_value(temperature_meter, 0);
 
-    temperature_label = lv_label_create(tab0, NULL);
+    temperature_label = lv_label_create(homeTab, NULL);
     lv_label_set_text(temperature_label, "N/A");
     lv_obj_align(temperature_label, NULL, LV_ALIGN_CENTER, 0, 0);
 
-    temperature_celsius = lv_label_create(tab0, NULL);
+    temperature_celsius = lv_label_create(homeTab, NULL);
     lv_label_set_text(temperature_celsius, "°C");
     lv_obj_align(temperature_celsius, NULL, LV_ALIGN_CENTER, 0, 20);
 
-    clockLabel = lv_label_create(tab0, NULL);
+    clockLabel = lv_label_create(homeTab, NULL);
     lv_obj_align(clockLabel, NULL, LV_ALIGN_IN_TOP_LEFT, 3, 0);
 
     if (!rtc.begin())
@@ -335,18 +289,6 @@ void setup()
     }
 }
 
-/*
------------------------------------------------------------------------------------------------
- __       _____   _____   ____    
-/\ \     /\  __`\/\  __`\/\  _`\  
-\ \ \    \ \ \/\ \ \ \/\ \ \ \L\ \
- \ \ \  __\ \ \ \ \ \ \ \ \ \ ,__/
-  \ \ \L\ \\ \ \_\ \ \ \_\ \ \ \/ 
-   \ \____/ \ \_____\ \_____\ \_\ 
-    \/___/   \/_____/\/_____/\/_/ 
-
-*/
-
 void loop()
 {
     currentTime = millis();
@@ -355,8 +297,22 @@ void loop()
     {
         Serial.println(thermocouple.readCelsius());
 
-        lv_linemeter_set_value(temperature_meter, thermocouple.readCelsius());
-        updateTemperatureLabel(thermocouple.readCelsius());
+        if (isnan(sqrt(thermocouple.readCelsius())))
+        {
+            Serial.println("Sensor value failure");
+            // turn off heat
+        }
+        else
+        {
+            if(thermocouple.readCelsius() < maxHeat) {
+                //keep heater on
+            } else {
+                // turn off heat
+            }
+            lv_linemeter_set_value(temperature_meter, thermocouple.readCelsius());
+            updateTemperatureLabel(thermocouple.readCelsius());
+        }
+
         previous1Time = currentTime;
     }
 
@@ -367,48 +323,5 @@ void loop()
         lv_label_set_text(clockLabel, now.toString(buf1));
         previous2Time = currentTime;
     }
-
     lv_task_handler();
-
-    /*  DateTime now = rtc.now();
-
-    Serial.print(now.year(), DEC);S
-    Serial.print('/');
-    Serial.print(now.month(), DEC);
-    Serial.print('/');
-    Serial.print(now.day(), DEC);
-    Serial.print(" (");
-    Serial.print(daysOfTheWeek[now.dayOfTheWeek()]);
-    Serial.print(") ");
-    Serial.print(now.hour(), DEC);
-    Serial.print(':');
-    Serial.print(now.minute(), DEC);
-    Serial.print(':');
-    Serial.print(now.second(), DEC);
-    Serial.println();
-
-    Serial.print(" since midnight 1/1/1970 = ");
-    Serial.print(now.unixtime());
-    Serial.print("s = ");
-    Serial.print(now.unixtime() / 86400L);
-    Serial.println("d");
-
-    // calculate a date which is 7 days and 30 seconds into the future
-    DateTime future(now + TimeSpan(7, 12, 30, 6));
-
-    Serial.print(" now + 7d + 30s: ");
-    Serial.print(future.year(), DEC);
-    Serial.print('/');
-    Serial.print(future.month(), DEC);
-    Serial.print('/');
-    Serial.print(future.day(), DEC);
-    Serial.print(' ');
-    Serial.print(future.hour(), DEC);
-    Serial.print(':');
-    Serial.print(future.minute(), DEC);
-    Serial.print(':');
-    Serial.print(future.second(), DEC);
-    Serial.println();
-
-    Serial.println(); */
 }
