@@ -13,6 +13,8 @@ int thermoCLK = 14;
 int vccPin = 12;
 MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
+int heater = 34;
+
 RTC_DS3231 rtc;
 
 char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
@@ -34,7 +36,8 @@ unsigned long previous2Time;
 unsigned long secondInterval = 1000;
 unsigned long threeSecondInterval = 3000;
 
-float maxHeat = 300;
+float upperHeat = 70;
+float lowerHeat = 50;
 
 #if USE_LV_LOG != 0
 /* Serial debugging */
@@ -199,6 +202,8 @@ void setup()
     digitalWrite(vccPin, HIGH);
     lv_init();
 
+    pinMode(heater, OUTPUT);
+
 #if USE_LV_LOG != 0
     lv_log_register_print_cb(my_print); /* register print function for debugging */
 #endif
@@ -301,13 +306,19 @@ void loop()
         {
             Serial.println("Sensor value failure");
             // turn off heat
+            digitalWrite(34, LOW);
         }
         else
         {
-            if(thermocouple.readCelsius() < maxHeat) {
+            if(thermocouple.readCelsius() < upperHeat || thermocouple.readCelsius() < lowerHeat) {
                 //keep heater on
+                Serial.println("Heater on");
+                digitalWrite(34, HIGH);
+
             } else {
                 // turn off heat
+                Serial.println("Heater off");
+                digitalWrite(34, LOW);
             }
             lv_linemeter_set_value(temperature_meter, thermocouple.readCelsius());
             updateTemperatureLabel(thermocouple.readCelsius());
