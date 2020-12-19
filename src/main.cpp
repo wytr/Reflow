@@ -35,8 +35,8 @@ unsigned long secondInterval = 500;
 unsigned long threeSecondInterval = 3000;
 
 int heater = 33;
-float upperHeat = 45;
-float lowerHeat = 40;
+float upperHeat = 55;
+float lowerHeat = 50;
 boolean heaterStatus = false;
 
 #if USE_LV_LOG != 0
@@ -202,8 +202,6 @@ void setup()
     lv_init();
 
     pinMode(heater, OUTPUT);
-    digitalWrite(heater, HIGH);
-    heaterStatus = true;
 
 #if USE_LV_LOG != 0
     lv_log_register_print_cb(my_print); /* register print function for debugging */
@@ -301,7 +299,12 @@ void loop()
 
     if (currentTime - previous1Time >= secondInterval)
     {
-        Serial.println(thermocouple.readCelsius());
+        Serial.print(thermocouple.readCelsius());
+        DateTime time = rtc.now();
+        char buf2[10] = "hh:mm:ss";
+        Serial.print(" ");
+        Serial.println(time.toString(buf2));
+
 
         if (isnan(sqrt(thermocouple.readCelsius())))
         {
