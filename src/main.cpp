@@ -38,8 +38,6 @@ int heater = 33;
 float upperHeat = 45;
 float lowerHeat = 40;
 boolean heaterStatus = false;
-boolean cooldown = false;
-boolean heatup = true;
 
 #if USE_LV_LOG != 0
 /* Serial debugging */
@@ -321,8 +319,6 @@ void loop()
                     Serial.println("Heater off");
                     digitalWrite(heater, LOW);
                     heaterStatus = false;
-                    cooldown = true;
-                    heatup = false;
                 }
             }
             if (thermocouple.readCelsius() < lowerHeat)
@@ -333,36 +329,6 @@ void loop()
                     Serial.println("Heater on");
                     digitalWrite(heater, HIGH);
                     heaterStatus = true;
-                    cooldown = false;
-                    heatup = true;
-                }
-            }
-
-            if (thermocouple.readCelsius() < upperHeat && thermocouple.readCelsius() > lowerHeat)
-            {
-                if (cooldown)
-                {
-                    // turn off heat
-                    if (heaterStatus == true)
-                    {
-                        Serial.println("Heater off");
-                        digitalWrite(heater, LOW);
-                        heaterStatus = false;
-                        cooldown = true;
-                        heatup = false;
-                    }
-                }
-                else
-                {
-                    //keep heater on
-                    if (heaterStatus == false)
-                    {
-                        Serial.println("Heater on");
-                        digitalWrite(heater, HIGH);
-                        heaterStatus = true;
-                        cooldown = false;
-                        heatup = true;
-                    }
                 }
             }
 
