@@ -2,7 +2,12 @@
 #include <SPI.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
-#include <stdio.h>
+#include "Wire.h"
+#include "RTClib.h"
+
+RTC_DS3231 rtc;
+
+char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
 TFT_eSPI tft = TFT_eSPI(); /* TFT instance */
 static lv_disp_buf_t disp_buf;
@@ -86,78 +91,45 @@ void printEvent(String Event, lv_event_t event)
 {
 
     Serial.print(Event);
-    printf(" ");
+    Serial.println(" ");
 
     switch (event)
     {
     case LV_EVENT_PRESSED:
-        printf("Pressed\n");
+        Serial.println("Pressed\n");
         break;
 
     case LV_EVENT_SHORT_CLICKED:
-        printf("Short clicked\n");
+        Serial.println("Short clicked\n");
         break;
 
     case LV_EVENT_CLICKED:
-        printf("Clicked\n");
+        Serial.println("Clicked\n");
         break;
 
     case LV_EVENT_LONG_PRESSED:
-        printf("Long press\n");
+        Serial.println("Long press\n");
         break;
 
     case LV_EVENT_LONG_PRESSED_REPEAT:
-        printf("Long press repeat\n");
+        Serial.println("Long press repeat\n");
         break;
 
     case LV_EVENT_RELEASED:
-        printf("Released\n");
+        Serial.println("Released\n");
         break;
     }
 }
 
-static void tab1_event_cb(lv_obj_t *tab1, lv_event_t event)
+static void profile_handler(lv_obj_t *obj, lv_event_t event)
 {
-    switch (event)
+    if (event == LV_EVENT_VALUE_CHANGED)
     {
-    case LV_EVENT_PRESSED:
-        printf("Pressed\n");
-        break;
-
-    case LV_EVENT_SHORT_CLICKED:
-        printf("Short clicked\n");
-        break;
-
-    case LV_EVENT_CLICKED:
-        printf("Clicked\n");
-        break;
-
-    case LV_EVENT_LONG_PRESSED:
-        printf("Long press\n");
-        break;
-
-    case LV_EVENT_LONG_PRESSED_REPEAT:
-        printf("Long press repeat\n");
-        break;
-
-    case LV_EVENT_RELEASED:
-        printf("Released\n");
-        break;
-    }
-
-    /*Etc.*/
-}
-
-static void profile_handler(lv_obj_t * obj, lv_event_t event)
-{
-    if(event == LV_EVENT_VALUE_CHANGED) {
         char buf[32];
         lv_dropdown_get_selected_str(obj, buf, sizeof(buf));
         printf("Option: %s\n", buf);
     }
 }
-
-
 
 void updateTemperatureLabel(int value)
 {
@@ -168,7 +140,7 @@ void updateTemperatureLabel(int value)
     lv_label_set_text(temperature_label, buffer);
 }
 
-static void createTable(lv_obj_t *parent,const char* temp1, const char* temp2, const char* time1,const char* time2)
+static void createTable(lv_obj_t *parent, const char *temp1, const char *temp2, const char *time1, const char *time2)
 {
     lv_obj_t *table = lv_table_create(parent, NULL);
     lv_obj_set_size(table, 200, 150);
@@ -188,81 +160,63 @@ static void createTable(lv_obj_t *parent,const char* temp1, const char* temp2, c
     /*Fill the second column*/
     lv_table_set_cell_value(table, 0, 1, "Tem");
     lv_table_set_cell_value(table, 1, 1, temp1);
-    lv_table_set_cell_value(table, 2, 1, temp2);   
-    
+    lv_table_set_cell_value(table, 2, 1, temp2);
+
     /*Fill the third column*/
     lv_table_set_cell_value(table, 0, 2, "Tim");
     lv_table_set_cell_value(table, 1, 2, time1);
     lv_table_set_cell_value(table, 2, 2, time2);
 }
 
-static void createLabel(lv_obj_t *parent, const char *text)
+/*static void createLabel(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *label = lv_label_create(parent, NULL);
     lv_label_set_text(label, text);
-}
+} */
 
-// zusätzliche function parameter 2 int arrays
-static void createChart(lv_obj_t *parent)
+
+static void createChart(lv_obj_t *parent, int chart1[9], int chart2[9])
 {
     /*Create a chart*/
-    lv_obj_t * chart;
+    lv_obj_t *chart;
     chart = lv_chart_create(parent, NULL);
     lv_obj_set_size(chart, 200, 150);
     lv_obj_align(chart, NULL, LV_ALIGN_CENTER, 0, 0);
-    lv_chart_set_type(chart, LV_CHART_TYPE_LINE);   /*Show lines and points too*/
-
-    /*Add a faded are effect*/
-   // lv_obj_set_style_local_bg_opa(chart, LV_CHART_PART_SERIES, LV_STATE_DEFAULT, LV_OPA_50); /*Max. opa.*/
-   // lv_obj_set_style_local_bg_grad_dir(chart, LV_CHART_PART_SERIES, LV_STATE_DEFAULT, LV_GRAD_DIR_VER);
-   // lv_obj_set_style_local_bg_main_stop(chart, LV_CHART_PART_SERIES, LV_STATE_DEFAULT, 255);    /*Max opa on the top*/
-   // lv_obj_set_style_local_bg_grad_stop(chart, LV_CHART_PART_SERIES, LV_STATE_DEFAULT, 0);      /*Transparent on the bottom*/
+    lv_chart_set_type(chart, LV_CHART_TYPE_LINE); /*Show lines and points too*/
 
     /*Add two data series*/
-    lv_chart_series_t * ser1 = lv_chart_add_series(chart, LV_COLOR_BLACK);
-    lv_chart_series_t * ser2 = lv_chart_add_series(chart, LV_COLOR_RED);
+    lv_chart_series_t *ser1 = lv_chart_add_series(chart, LV_COLOR_BLACK);
+    lv_chart_series_t *ser2 = lv_chart_add_series(chart, LV_COLOR_RED);
 
     /*Set the next points on 'ser1'*/
-    lv_chart_set_next(chart, ser1, 31);
-    lv_chart_set_next(chart, ser1, 66);
-    lv_chart_set_next(chart, ser1, 10);
-    lv_chart_set_next(chart, ser1, 89);
-    lv_chart_set_next(chart, ser1, 63);
-    lv_chart_set_next(chart, ser1, 56);
-    lv_chart_set_next(chart, ser1, 32);
-    lv_chart_set_next(chart, ser1, 35);
-    lv_chart_set_next(chart, ser1, 57);
-    lv_chart_set_next(chart, ser1, 85);
+    const int SIZE = 9;
+    for (int i = 0; i < SIZE; i++)
+    {
+        lv_chart_set_next(chart, ser1, chart1[i]);
+    }
 
     /*Directly set points on 'ser2'*/
-    ser2->points[0] = 92;
-    ser2->points[1] = 71;
-    ser2->points[2] = 61;
-    ser2->points[3] = 15;
-    ser2->points[4] = 21;
-    ser2->points[5] = 35;
-    ser2->points[6] = 35;
-    ser2->points[7] = 58;
-    ser2->points[8] = 31;
-    ser2->points[9] = 53;
+    for (int j = 0; j < SIZE; j++)
+    {
+        ser2->points[j] = chart2[j];
+    }
 
     lv_chart_refresh(chart); /*Required after direct set*/
 }
 
-static void createDropdown(lv_obj_t * parent) {
-       /*Create a normal drop down list*/
-    lv_obj_t * ddlist = lv_dropdown_create(parent, NULL);
-    lv_dropdown_set_options(ddlist, "Apple\n"
-            "Banana\n"
-            "Orange\n"
-            "Melon\n"
-            "Grape\n"
-            "Raspberry");
+static void createDropdown(lv_obj_t *parent)
+{
+    /*Create a normal drop down list*/
+    lv_obj_t *ddlist = lv_dropdown_create(parent, NULL);
+    lv_dropdown_set_options(ddlist, "Profil1\n"
+                                    "Profil2\n"
+                                    "Graka\n"
+                                    "Mainboard\n"
+                                    "Raspberry");
 
     lv_obj_align(ddlist, NULL, LV_ALIGN_IN_TOP_MID, 0, 20);
     lv_obj_set_event_cb(ddlist, profile_handler);
 }
-
 
 /*
 -----------------------------------------------------------------------------------------------
@@ -312,12 +266,8 @@ void setup()
     indev_drv.read_cb = my_touchpad_read;
     lv_indev_drv_register(&indev_drv);
 
-    //lv_obj_t *label = lv_label_create(lv_scr_act(), NULL);
-    //lv_label_set_text(label, "Hello Arduino! (V7.0.X)");
-    //lv_obj_align(label, NULL, LV_ALIGN_CENTER, 0, 0);
-
-    lv_theme_t *th = lv_theme_material_init(LV_THEME_DEFAULT_COLOR_PRIMARY, LV_THEME_DEFAULT_COLOR_SECONDARY, LV_THEME_DEFAULT_FLAG, 
-    LV_THEME_DEFAULT_FONT_SMALL, LV_THEME_DEFAULT_FONT_NORMAL, LV_THEME_DEFAULT_FONT_SUBTITLE, LV_THEME_DEFAULT_FONT_TITLE);
+    lv_theme_t *th = lv_theme_material_init(LV_THEME_DEFAULT_COLOR_PRIMARY, LV_THEME_DEFAULT_COLOR_SECONDARY, LV_THEME_DEFAULT_FLAG,
+                                            LV_THEME_DEFAULT_FONT_SMALL, LV_THEME_DEFAULT_FONT_NORMAL, LV_THEME_DEFAULT_FONT_SUBTITLE, LV_THEME_DEFAULT_FONT_TITLE);
     lv_theme_set_act(th);
 
     //SCREEN
@@ -326,9 +276,9 @@ void setup()
     //TABVIEW
     lv_obj_t *tv = lv_tabview_create(scr, NULL);
     lv_tabview_set_btns_pos(tv, LV_TABVIEW_TAB_POS_BOTTOM);
-  
+
     lv_tabview_set_anim_time(tv, 50);
-   
+
     lv_obj_set_size(tv, LV_HOR_RES_MAX, LV_VER_RES_MAX);
 
     //TABS
@@ -340,14 +290,12 @@ void setup()
 
     lv_obj_t *tab3 = lv_tabview_add_tab(tv, LV_SYMBOL_WIFI);
 
-    //lv_obj_set_event_cb(tab1, tab1_event_cb);
-
-   // createLabel(*tab0, "Erster Tab");
-   // createLabel(*tab1, "Zweiter Tab");
     createTable(tab1, "59", "80", "102", "222");
     createDropdown(tab1);
 
-    createChart(tab2);
+    int chart1[9] = {22, 33, 44, 55, 66, 77, 88, 99, 101};
+    int chart2[9] = {11, 15, 33, 44, 55, 66, 77, 88, 99};
+    createChart(tab2, chart1, chart2);
 
     temperature_meter = lv_linemeter_create(tab0, NULL);
     lv_obj_set_size(temperature_meter, 120, 120);
@@ -361,6 +309,23 @@ void setup()
     temperature_celsius = lv_label_create(tab0, NULL);
     lv_label_set_text(temperature_celsius, "°C");
     lv_obj_align(temperature_celsius, NULL, LV_ALIGN_CENTER, 0, 20);
+
+    if (!rtc.begin())
+    {
+        Serial.println("Couldn't find RTC");
+        while (1)
+            ;
+    }
+
+    if (rtc.lostPower())
+    {
+        Serial.println("RTC lost power, lets set the time!");
+        // following line sets the RTC to the date &amp; time this sketch was compiled
+        rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+        // This line sets the RTC with an explicit date &amp; time, for example to set
+        // January 21, 2014 at 3am you would call:
+        // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
+    }
 }
 
 /*
@@ -414,6 +379,49 @@ void loop()
     lv_linemeter_set_value(temperature_meter, temp);
     updateTemperatureLabel(temp * 2.5);
     lv_task_handler(); /* let the GUI do its work */
+
+
+  /*  DateTime now = rtc.now();
+
+    Serial.print(now.year(), DEC);
+    Serial.print('/');
+    Serial.print(now.month(), DEC);
+    Serial.print('/');
+    Serial.print(now.day(), DEC);
+    Serial.print(" (");
+    Serial.print(daysOfTheWeek[now.dayOfTheWeek()]);
+    Serial.print(") ");
+    Serial.print(now.hour(), DEC);
+    Serial.print(':');
+    Serial.print(now.minute(), DEC);
+    Serial.print(':');
+    Serial.print(now.second(), DEC);
+    Serial.println();
+
+    Serial.print(" since midnight 1/1/1970 = ");
+    Serial.print(now.unixtime());
+    Serial.print("s = ");
+    Serial.print(now.unixtime() / 86400L);
+    Serial.println("d");
+
+    // calculate a date which is 7 days and 30 seconds into the future
+    DateTime future(now + TimeSpan(7, 12, 30, 6));
+
+    Serial.print(" now + 7d + 30s: ");
+    Serial.print(future.year(), DEC);
+    Serial.print('/');
+    Serial.print(future.month(), DEC);
+    Serial.print('/');
+    Serial.print(future.day(), DEC);
+    Serial.print(' ');
+    Serial.print(future.hour(), DEC);
+    Serial.print(':');
+    Serial.print(future.minute(), DEC);
+    Serial.print(':');
+    Serial.print(future.second(), DEC);
+    Serial.println();
+
+    Serial.println(); */
 
     delay(10);
 }
