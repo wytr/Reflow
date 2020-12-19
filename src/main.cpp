@@ -13,8 +13,6 @@ int thermoCLK = 14;
 int vccPin = 12;
 MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
-int heater = 34;
-
 RTC_DS3231 rtc;
 
 char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
@@ -33,11 +31,15 @@ static lv_obj_t *clockLabel;
 unsigned long currentTime;
 unsigned long previous1Time;
 unsigned long previous2Time;
-unsigned long secondInterval = 1000;
+unsigned long secondInterval = 500;
 unsigned long threeSecondInterval = 3000;
 
-float upperHeat = 70;
-float lowerHeat = 50;
+int heater = 33;
+float upperHeat = 45;
+float lowerHeat = 40;
+boolean heaterStatus = false;
+boolean cooldown = false;
+boolean heatup = true;
 
 #if USE_LV_LOG != 0
 /* Serial debugging */
@@ -149,7 +151,6 @@ static void createTable(lv_obj_t *parent, char *temp1, char *temp2, char *time1,
     lv_table_set_cell_value(table, 1, 2, time2);
 }
 
-
 static void createChart(lv_obj_t *parent, int chart1[9], int chart2[9])
 {
     // TODO create chart from profile Data and from Sensor Values
@@ -203,6 +204,8 @@ void setup()
     lv_init();
 
     pinMode(heater, OUTPUT);
+    digitalWrite(heater, HIGH);
+    heaterStatus = true;
 
 #if USE_LV_LOG != 0
     lv_log_register_print_cb(my_print); /* register print function for debugging */
@@ -306,20 +309,63 @@ void loop()
         {
             Serial.println("Sensor value failure");
             // turn off heat
-            digitalWrite(34, LOW);
+            digitalWrite(heater, LOW);
         }
         else
         {
-            if(thermocouple.readCelsius() < upperHeat || thermocouple.readCelsius() < lowerHeat) {
-                //keep heater on
-                Serial.println("Heater on");
-                digitalWrite(34, HIGH);
-
-            } else {
+            if (thermocouple.readCelsius() > upperHeat)
+            {
                 // turn off heat
-                Serial.println("Heater off");
-                digitalWrite(34, LOW);
+                if (heaterStatus == true)
+                {
+                    Serial.println("Heater off");
+                    digitalWrite(heater, LOW);
+                    heaterStatus = false;
+                    cooldown = true;
+                    heatup = false;
+                }
             }
+            if (thermocouple.readCelsius() < lowerHeat)
+            {
+                //keep heater on
+                if (heaterStatus == false)
+                {
+                    Serial.println("Heater on");
+                    digitalWrite(heater, HIGH);
+                    heaterStatus = true;
+                    cooldown = false;
+                    heatup = true;
+                }
+            }
+
+            if (thermocouple.readCelsius() < upperHeat && thermocouple.readCelsius() > lowerHeat)
+            {
+                if (cooldown)
+                {
+                    // turn off heat
+                    if (heaterStatus == true)
+                    {
+                        Serial.println("Heater off");
+                        digitalWrite(heater, LOW);
+                        heaterStatus = false;
+                        cooldown = true;
+                        heatup = false;
+                    }
+                }
+                else
+                {
+                    //keep heater on
+                    if (heaterStatus == false)
+                    {
+                        Serial.println("Heater on");
+                        digitalWrite(heater, HIGH);
+                        heaterStatus = true;
+                        cooldown = false;
+                        heatup = true;
+                    }
+                }
+            }
+
             lv_linemeter_set_value(temperature_meter, thermocouple.readCelsius());
             updateTemperatureLabel(thermocouple.readCelsius());
         }
