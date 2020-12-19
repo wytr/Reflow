@@ -4,6 +4,14 @@
 #include <TFT_eSPI.h>
 #include "Wire.h"
 #include "RTClib.h"
+#include <max6675.h>
+
+// MAX6675 Sensor
+int thermoDO = 26;
+int thermoCS = 27;
+int thermoCLK = 14;
+int vccPin = 12;
+MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
 RTC_DS3231 rtc;
 
@@ -15,12 +23,16 @@ static lv_color_t buf[LV_HOR_RES_MAX * 10];
 
 int screenWidth = 240;
 int screenHeight = 320;
-int temp = 1;
-int upw = 1;
-int dws = 0;
 static lv_obj_t *temperature_meter;
 static lv_obj_t *temperature_label;
 static lv_obj_t *temperature_celsius;
+static lv_obj_t *clockLabel;
+
+unsigned long currentTime;
+unsigned long previous1Time;
+unsigned long previous2Time;
+unsigned long secondInterval = 1000;
+unsigned long threeSecondInterval = 3000;
 
 #if USE_LV_LOG != 0
 /* Serial debugging */
@@ -125,21 +137,24 @@ static void profile_handler(lv_obj_t *obj, lv_event_t event)
 {
     if (event == LV_EVENT_VALUE_CHANGED)
     {
+        // TODO load profile into table
         char buf[32];
         lv_dropdown_get_selected_str(obj, buf, sizeof(buf));
         printf("Option: %s\n", buf);
     }
 }
 
-void updateTemperatureLabel(int value)
+void updateTemperatureLabel(float value)
 {
-    char buffer[12] = {
-        0,
-    };
-    snprintf(buffer, sizeof(buffer), "%i%", value);
+    char buffer[12] = {0};
+    snprintf(buffer, sizeof(buffer), "%.2f", value);
     lv_label_set_text(temperature_label, buffer);
 }
-
+/*void updateTimeLabel(String now)
+{
+    const char * c = now.c_str();
+    lv_label_set_text(clockLabel, c);
+}*/
 static void createTable(lv_obj_t *parent, const char *temp1, const char *temp2, const char *time1, const char *time2)
 {
     lv_obj_t *table = lv_table_create(parent, NULL);
@@ -167,13 +182,6 @@ static void createTable(lv_obj_t *parent, const char *temp1, const char *temp2, 
     lv_table_set_cell_value(table, 1, 2, time1);
     lv_table_set_cell_value(table, 2, 2, time2);
 }
-
-/*static void createLabel(lv_obj_t *parent, const char *text)
-{
-    lv_obj_t *label = lv_label_create(parent, NULL);
-    lv_label_set_text(label, text);
-} */
-
 
 static void createChart(lv_obj_t *parent, int chart1[9], int chart2[9])
 {
@@ -206,7 +214,7 @@ static void createChart(lv_obj_t *parent, int chart1[9], int chart2[9])
 
 static void createDropdown(lv_obj_t *parent)
 {
-    /*Create a normal drop down list*/
+    // TODO load profiles from memory
     lv_obj_t *ddlist = lv_dropdown_create(parent, NULL);
     lv_dropdown_set_options(ddlist, "Profil1\n"
                                     "Profil2\n"
@@ -233,7 +241,8 @@ static void createDropdown(lv_obj_t *parent)
 void setup()
 {
     Serial.begin(9600); /* prepare for possible serial debug */
-
+    pinMode(vccPin, OUTPUT);
+    digitalWrite(vccPin, HIGH);
     lv_init();
 
 #if USE_LV_LOG != 0
@@ -276,20 +285,15 @@ void setup()
     //TABVIEW
     lv_obj_t *tv = lv_tabview_create(scr, NULL);
     lv_tabview_set_btns_pos(tv, LV_TABVIEW_TAB_POS_BOTTOM);
-
     lv_tabview_set_anim_time(tv, 50);
-
     lv_obj_set_size(tv, LV_HOR_RES_MAX, LV_VER_RES_MAX);
-
     //TABS
     lv_obj_t *tab0 = lv_tabview_add_tab(tv, LV_SYMBOL_HOME);
-
     lv_obj_t *tab1 = lv_tabview_add_tab(tv, LV_SYMBOL_SETTINGS);
-
     lv_obj_t *tab2 = lv_tabview_add_tab(tv, LV_SYMBOL_IMAGE);
-
     lv_obj_t *tab3 = lv_tabview_add_tab(tv, LV_SYMBOL_WIFI);
 
+    // table, dropdown and charts
     createTable(tab1, "59", "80", "102", "222");
     createDropdown(tab1);
 
@@ -309,6 +313,9 @@ void setup()
     temperature_celsius = lv_label_create(tab0, NULL);
     lv_label_set_text(temperature_celsius, "°C");
     lv_obj_align(temperature_celsius, NULL, LV_ALIGN_CENTER, 0, 20);
+
+    clockLabel = lv_label_create(tab0, NULL);
+    lv_obj_align(clockLabel, NULL, LV_ALIGN_IN_TOP_LEFT, 3, 0);
 
     if (!rtc.begin())
     {
@@ -342,48 +349,30 @@ void setup()
 
 void loop()
 {
+    currentTime = millis();
 
-    if (upw == 1)
+    if (currentTime - previous1Time >= secondInterval)
     {
-        temp++;
-    }
-    if (dws == 1)
-    {
-        temp--;
-    }
+        Serial.println(thermocouple.readCelsius());
 
-    if (temp == 120)
-    {
-        temp = 119;
-        dws = 1;
-        upw = 0;
+        lv_linemeter_set_value(temperature_meter, thermocouple.readCelsius());
+        updateTemperatureLabel(thermocouple.readCelsius());
+        previous1Time = currentTime;
     }
 
-    if (temp == 20)
+    if (currentTime - previous2Time >= threeSecondInterval)
     {
-        temp = 21;
-        dws = 0;
-        upw = 1;
+        char buf1[9] = "hh:mm";
+        DateTime now = rtc.now();
+        lv_label_set_text(clockLabel, now.toString(buf1));
+        previous2Time = currentTime;
     }
 
-    if (temp < 50)
-    {
-        digitalWrite(12, HIGH);
-    }
+    lv_task_handler();
 
-    if (temp > 50)
-    {
-        digitalWrite(12, LOW);
-    }
+    /*  DateTime now = rtc.now();
 
-    lv_linemeter_set_value(temperature_meter, temp);
-    updateTemperatureLabel(temp * 2.5);
-    lv_task_handler(); /* let the GUI do its work */
-
-
-  /*  DateTime now = rtc.now();
-
-    Serial.print(now.year(), DEC);
+    Serial.print(now.year(), DEC);S
     Serial.print('/');
     Serial.print(now.month(), DEC);
     Serial.print('/');
@@ -422,6 +411,4 @@ void loop()
     Serial.println();
 
     Serial.println(); */
-
-    delay(10);
 }
