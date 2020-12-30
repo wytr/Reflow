@@ -6,37 +6,72 @@
 #include "RTClib.h"
 #include <max6675.h>
 
-// MAX6675 Sensor
+// MAX6675 Sensor: DataOut, ChipSelect, Clock, VCC and Instance of MAX6675 parsing the assigned values
+
 int thermoDO = 26;
 int thermoCS = 27;
 int thermoCLK = 14;
 int vccPin = 12;
 MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
+// RTC
 RTC_DS3231 rtc;
+
+// REFLOWPARAMETERS
+enum phase
+{
+    idle = 0,
+    preheat = 1,
+    soak = 2,
+    reflow = 3,
+    cooldown = 4
+
+};
+enum phase currentPhase = idle;
+
+//Temperature in degrees celsius
+float preheatTemp = 50;
+float soakTemp = 100;
+float reflowTemp = 150;
+// Time in seconds
+int preheatTime = 100;
+int soakTime = 100;
+int reflowTime = 30;
+// Countervariables to switch case
+int preheatCounter = 0;
+int soakCounter = 0;
+int reflowCounter =0;
 
 char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
-TFT_eSPI tft = TFT_eSPI(); /* TFT instance */
+/* TFT instance */
+TFT_eSPI tft = TFT_eSPI(); 
+//LVGL shit
 static lv_disp_buf_t disp_buf;
 static lv_color_t buf[LV_HOR_RES_MAX * 10];
-
+// Displaysettings
 int screenWidth = 240;
 int screenHeight = 320;
+//GUI objects
 static lv_obj_t *temperature_meter;
 static lv_obj_t *temperature_label;
 static lv_obj_t *temperature_celsius;
 static lv_obj_t *clockLabel;
 
+//Timerstuff
 unsigned long currentTime;
 unsigned long previous1Time;
 unsigned long previous2Time;
-unsigned long secondInterval = 500;
+unsigned long secondInterval = 1000;
 unsigned long threeSecondInterval = 3000;
-
+//OutputPin for relay
 int heater = 33;
-float upperHeat = 55;
-float lowerHeat = 50;
+//For assigning the current Targettemperature
+float currentTargetTemp = preheat;
+//Hysteresisvalues
+float upperHeat = currentTargetTemp - 5.0;
+float lowerHeat = currentTargetTemp - 10.0;
+//Bool for checking if heating is on or off
 boolean heaterStatus = false;
 
 #if USE_LV_LOG != 0
@@ -194,6 +229,11 @@ static void createDropdown(lv_obj_t *parent)
     lv_obj_set_event_cb(ddlist, profile_handler);
 }
 
+void buzzer() {
+
+  Serial.println("buzzZZ");
+
+}
 void setup()
 {
     Serial.begin(9600); /* prepare for possible serial debug */
@@ -295,8 +335,11 @@ void setup()
 
 void loop()
 {
-    currentTime = millis();
+    float upperHeat = currentTargetTemp - 5.0;
+    float lowerHeat = currentTargetTemp - 10.0;
 
+    currentTime = millis();
+/*
     if (currentTime - previous1Time >= secondInterval)
     {
         Serial.print(thermocouple.readCelsius());
@@ -349,5 +392,8 @@ void loop()
         lv_label_set_text(clockLabel, now.toString(buf1));
         previous2Time = currentTime;
     }
+    */
+
+
     lv_task_handler();
 }
