@@ -59,9 +59,9 @@ static lv_obj_t *temperature_celsius;
 static lv_obj_t *clockLabel;
 
 //Timerstuff
-unsigned long currentTime;
-unsigned long previous1Time;
-unsigned long previous2Time;
+unsigned long currentTime = 0;
+unsigned long previous1Time = 0;
+unsigned long previous2Time = 0;
 unsigned long secondInterval = 1000;
 unsigned long threeSecondInterval = 3000;
 //OutputPin for relay
@@ -69,8 +69,8 @@ int heater = 33;
 //For assigning the current Targettemperature
 float currentTargetTemp = preheat;
 //Hysteresisvalues
-float upperHeat = currentTargetTemp - 5.0;
-float lowerHeat = currentTargetTemp - 10.0;
+float upperHys = currentTargetTemp - 5.0;
+float lowerHys = currentTargetTemp - 10.0;
 //Bool for checking if heating is on or off
 boolean heaterStatus = false;
 
@@ -335,10 +335,42 @@ void setup()
 
 void loop()
 {
-    float upperHeat = currentTargetTemp - 5.0;
-    float lowerHeat = currentTargetTemp - 10.0;
+    //Setting Hysteresis-limits
+    float upperHys = currentTargetTemp - 5.0;
+    float lowerHys = currentTargetTemp - 10.0;
 
     currentTime = millis();
+
+    if (currentTime >= secondInterval){
+
+     switch (currentPhase){
+
+        case idle:
+            currentTargetTemp = 20.0;
+            Serial.println("STATUS: IDLE");
+
+            break;
+        case preheat:
+            if (preheatCounter < preheatTime){
+
+                currentTargetTemp = preheatTemp;
+                Serial.println("STATUS: PREHEAT");
+            }
+
+            break;
+        case soak:
+            currentTargetTemp = soakTemp;
+            Serial.println("STATUS: SOAK");
+            break;
+        case reflow:
+            currentTargetTemp = reflowTemp;
+            Serial.println("STATUS: PREHEAT");
+        case cooldown:
+            currentTargetTemp = 20.0;
+            Serial.println("STATUS: COOLDOWN");
+            break;
+    }
+    }
 /*
     if (currentTime - previous1Time >= secondInterval)
     {
@@ -357,7 +389,7 @@ void loop()
         }
         else
         {
-            if (thermocouple.readCelsius() > upperHeat)
+            if (thermocouple.readCelsius() > upperHys)
             {
                 // turn off heat
                 if (heaterStatus == true)
@@ -367,7 +399,7 @@ void loop()
                     heaterStatus = false;
                 }
             }
-            if (thermocouple.readCelsius() < lowerHeat)
+            if (thermocouple.readCelsius() < lowerHys)
             {
                 //keep heater on
                 if (heaterStatus == false)
