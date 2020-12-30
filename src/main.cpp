@@ -29,18 +29,33 @@ enum phase
 };
 enum phase currentPhase = idle;
 
-//Temperature in degrees celsius
-float preheatTemp = 50;
-float soakTemp = 100;
-float reflowTemp = 150;
-// Time in seconds
-int preheatTime = 100;
-int soakTime = 100;
-int reflowTime = 30;
-// Countervariables to switch case
-int preheatCounter = 0;
-int soakCounter = 0;
-int reflowCounter =0;
+struct profileStruct {
+
+    int preheatTime = 120;
+    int soakTime = 120;
+    int reflowTime = 120;
+    int cooldownTime = 120;
+
+    int preheatCounter = 0;
+    int soakCounter = 0;
+    int reflowCounter = 0;
+    int cooldownCounter = 0;
+
+    float idleTemp = 0;
+    float preheatTemp = 30;
+    float soakTemp = 40;
+    float reflowTemp = 60;
+
+};
+
+profileStruct currentProfile;
+
+// Messageindicator for serialprint
+    bool idleMessage = false;
+    bool preheatMessage = false;
+    bool soakMessage = false;
+    bool reflowMessage = false;
+    bool cooldownMessage = false;
 
 char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
@@ -62,15 +77,15 @@ static lv_obj_t *clockLabel;
 unsigned long currentTime = 0;
 unsigned long previous1Time = 0;
 unsigned long previous2Time = 0;
-unsigned long secondInterval = 1000;
+unsigned long oneSecondInterval = 1000;
 unsigned long threeSecondInterval = 3000;
 //OutputPin for relay
 int heater = 33;
 //For assigning the current Targettemperature
 float currentTargetTemp = preheat;
 //Hysteresisvalues
-float upperHys = currentTargetTemp - 5.0;
-float lowerHys = currentTargetTemp - 10.0;
+float upperHys = currentTargetTemp + 0.5;
+float lowerHys = currentTargetTemp - 0.5;
 //Bool for checking if heating is on or off
 boolean heaterStatus = false;
 
@@ -331,48 +346,154 @@ void setup()
         // January 21, 2014 at 3am you would call:
         // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
     }
+
+    //testing purposes
+    currentPhase = preheat;
+    Serial.println("temp    up    dw");
+    Serial.println("----------------");
 }
 
 void loop()
 {
+
+
     //Setting Hysteresis-limits
-    float upperHys = currentTargetTemp - 5.0;
-    float lowerHys = currentTargetTemp - 10.0;
+    float upperHys = currentTargetTemp + 0.5;
+    float lowerHys = currentTargetTemp - 0.5;
 
     currentTime = millis();
 
-    if (currentTime >= secondInterval){
+    if (currentTime - previous1Time >= oneSecondInterval){
+        
+
+        Serial.print(thermocouple.readCelsius());
+        Serial.print("    ");
+        Serial.print(upperHys);
+        Serial.print("    ");
+        Serial.println(lowerHys);
+
+        /*
+        DateTime time = rtc.now();
+        char buf2[10] = "hh:mm:ss";
+        Serial.print(" ");
+        Serial.println(time.toString(buf2));
+        */
+
+        lv_linemeter_set_value(temperature_meter, thermocouple.readCelsius());
+        updateTemperatureLabel(thermocouple.readCelsius());
 
      switch (currentPhase){
 
         case idle:
-            currentTargetTemp = 20.0;
-            Serial.println("STATUS: IDLE");
+            currentTargetTemp = currentProfile.idleTemp;
 
-            break;
-        case preheat:
-            if (preheatCounter < preheatTime){
-
-                currentTargetTemp = preheatTemp;
-                Serial.println("STATUS: PREHEAT");
+            if (idleMessage == false)
+            {
+                Serial.println("STATUS: IDLE");
+                idleMessage = true;
             }
 
             break;
+        case preheat:
+            if (currentProfile.preheatCounter < currentProfile.preheatTime)
+            {
+                currentTargetTemp = currentProfile.preheatTemp;
+                if (preheatMessage == false) 
+                {
+                    Serial.println("STATUS: PREHEAT");
+                    preheatMessage = true;
+                }
+                currentProfile.preheatCounter++;
+            }
+            else{
+                currentProfile.preheatCounter = 0;
+                preheatMessage = false;
+                currentPhase = soak;
+            }
+            break;
         case soak:
-            currentTargetTemp = soakTemp;
-            Serial.println("STATUS: SOAK");
+            if (currentProfile.soakCounter < currentProfile.soakTime){
+            currentTargetTemp = currentProfile.soakTemp;
+
+                if(soakMessage == false){
+                Serial.println("STATUS: SOAK");
+                soakMessage = true;
+                }
+
+            currentProfile.soakCounter++;
+            }
+            else {
+                currentProfile.soakCounter = 0;
+                soakMessage = false;
+                currentPhase = reflow;
+            }
             break;
         case reflow:
-            currentTargetTemp = reflowTemp;
-            Serial.println("STATUS: PREHEAT");
-        case cooldown:
-            currentTargetTemp = 20.0;
-            Serial.println("STATUS: COOLDOWN");
+
+            if (currentProfile.reflowCounter < currentProfile.reflowTime){
+
+            currentTargetTemp = currentProfile.reflowTemp;
+
+                if(reflowMessage == false)
+                {
+                    Serial.println("STATUS: REFLOW");
+                    reflowMessage = true;
+                }
+            currentProfile.reflowCounter++;
+
+            }
+            else {
+                currentProfile.reflowCounter = 0;
+                reflowMessage = false;
+                currentPhase = cooldown;
+            }
             break;
+        case cooldown:
+            if (cooldownMessage == false){
+            digitalWrite(heater, LOW);
+            heaterStatus = false;
+            currentTargetTemp = currentProfile.idleTemp;
+            Serial.println("STATUS: COOLDOWN"); // TODO: Add routine for what happens when cooldown initiates (buzzer etc.)
+            cooldownMessage = true;
+            }
+            currentProfile.cooldownCounter++;
+            if (currentProfile.cooldownCounter >= currentProfile.cooldownTime){
+                currentProfile.cooldownCounter = 0;
+                currentPhase = idle;
+            }
+            break;
+
+     }
+     previous1Time = currentTime;
+
+    if (currentPhase != idle && currentPhase != cooldown)
+        {
+
+        if (thermocouple.readCelsius() > upperHys)
+            {
+                // turn off heat
+                if (heaterStatus == true)
+                {
+                    Serial.println("off");
+                    digitalWrite(heater, LOW);
+                    heaterStatus = false;
+                }
+            }
+        if (thermocouple.readCelsius() < lowerHys)
+            {
+                //keep heater on
+                if (heaterStatus == false)
+                {
+                    Serial.println("on");
+                    digitalWrite(heater, HIGH);
+                    heaterStatus = true;
+                }
+            }
+        }
     }
-    }
+
 /*
-    if (currentTime - previous1Time >= secondInterval)
+    if (currentTime - previous1Time >= oneSecondInterval)
     {
         Serial.print(thermocouple.readCelsius());
         DateTime time = rtc.now();
@@ -416,6 +537,7 @@ void loop()
 
         previous1Time = currentTime;
     }
+     */
 
     if (currentTime - previous2Time >= threeSecondInterval)
     {
@@ -424,7 +546,7 @@ void loop()
         lv_label_set_text(clockLabel, now.toString(buf1));
         previous2Time = currentTime;
     }
-    */
+   
 
 
     lv_task_handler();
