@@ -2,22 +2,25 @@
 #include <SPI.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
-#include "Wire.h"
-#include "RTClib.h"
+#include <Wire.h>
+#include <RTClib.h>
 #include <max6675.h>
+#include <tone32.h>
 
-// MAX6675 Sensor: DataOut, ChipSelect, Clock, VCC and Instance of MAX6675 parsing the assigned values
+#define BUZZER_PIN 40
+#define BUZZER_CHANNEL 0
 
-int thermoDO = 26;
-int thermoCS = 27;
-int thermoCLK = 14;
-int vccPin = 12;
+//MAX6675 Sensor: DataOut, ChipSelect, Clock, VCC and Instance of MAX6675
+const int thermoDO = 26;
+const int thermoCS = 27;
+const int thermoCLK = 14;
+const int vccPin = 12;
 MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
-
-// RTC
+//OutputPin for relay
+const int heater = 33;
+//RTC
 RTC_DS3231 rtc;
-
-// REFLOWPARAMETERS
+//REFLOWPARAMETERS
 enum phase
 {
     idle = 0,
@@ -27,8 +30,8 @@ enum phase
     cooldown = 4
 
 };
-enum phase currentPhase = idle;
-
+//Instance of phaseenum
+phase currentPhase = idle;
 struct profileStruct {
 
     int preheatTime = 120;
@@ -47,46 +50,42 @@ struct profileStruct {
     float reflowTemp = 60;
 
 };
-
+//Instance of profile-struct
 profileStruct currentProfile;
+//Messageindicator for serialprint
+bool idleMessage = false;
+bool preheatMessage = false;
+bool soakMessage = false;
+bool reflowMessage = false;
+bool cooldownMessage = false;
 
-// Messageindicator for serialprint
-    bool idleMessage = false;
-    bool preheatMessage = false;
-    bool soakMessage = false;
-    bool reflowMessage = false;
-    bool cooldownMessage = false;
-
-char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
-
-/* TFT instance */
+const char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+//TFT Instance
 TFT_eSPI tft = TFT_eSPI(); 
-//LVGL shit
+//LVGL stuff
 static lv_disp_buf_t disp_buf;
 static lv_color_t buf[LV_HOR_RES_MAX * 10];
-// Displaysettings
-int screenWidth = 240;
-int screenHeight = 320;
+//Displaysettings
+const int screenWidth = 240;
+const int screenHeight = 320;
 //GUI objects
 static lv_obj_t *temperature_meter;
 static lv_obj_t *temperature_label;
 static lv_obj_t *temperature_celsius;
 static lv_obj_t *clockLabel;
-
+static lv_obj_t *startbtnlabel;
 //Timerstuff
 unsigned long currentTime = 0;
 unsigned long previous1Time = 0;
 unsigned long previous2Time = 0;
 unsigned long oneSecondInterval = 1000;
 unsigned long threeSecondInterval = 3000;
-//OutputPin for relay
-int heater = 33;
-//For assigning the current Targettemperature
+//For assigning the current targettemperature
 float currentTargetTemp = preheat;
 //Hysteresisvalues
 float upperHys = currentTargetTemp + 0.5;
 float lowerHys = currentTargetTemp - 0.5;
-//Bool for checking if heating is on or off
+//Bool for checking if heater is on or off
 boolean heaterStatus = false;
 
 #if USE_LV_LOG != 0
@@ -99,7 +98,6 @@ void my_print(lv_log_level_t level, const char *file, uint32_t line, const char 
 }
 #endif
 
-/* Display flushing */
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p)
 {
     uint32_t w = (area->x2 - area->x1 + 1);
@@ -113,7 +111,6 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
     lv_disp_flush_ready(disp);
 }
 
-/*Read the touchpad*/
 bool my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
 {
     uint16_t touchX, touchY;
@@ -171,6 +168,7 @@ void updateTemperatureLabel(float value)
     snprintf(buffer, sizeof(buffer), "%.2f", value);
     lv_label_set_text(temperature_label, buffer);
 }
+
 
 static void createTable(lv_obj_t *parent, char *temp1, char *temp2, char *time1, char *time2)
 {
@@ -247,22 +245,45 @@ static void createDropdown(lv_obj_t *parent)
 void buzzer() {
 
   Serial.println("buzzZZ");
-
+  tone(BUZZER_PIN, NOTE_C4, 500, BUZZER_CHANNEL);
+  noTone(BUZZER_PIN, BUZZER_CHANNEL);
 }
+
+static void start_event_handler(lv_obj_t * obj, lv_event_t event)
+{
+
+    if(event == LV_EVENT_CLICKED) {
+        Serial.println("Clicked\n");
+    }
+    else if(event == LV_EVENT_VALUE_CHANGED) {
+        Serial.println("Toggled\n");
+
+         if(currentPhase == idle){
+             currentPhase = preheat;
+             Serial.println("Process started.");
+         }
+         else if(currentPhase !=idle){
+             currentPhase = cooldown;
+             Serial.println("aborted.. cooling down");
+         }
+
+    }
+}
+
 void setup()
 {
-    Serial.begin(9600); /* prepare for possible serial debug */
-    pinMode(vccPin, OUTPUT);
-    digitalWrite(vccPin, HIGH);
     lv_init();
 
+    Serial.begin(9600); /* prepare for possible serial debug */
+
+    pinMode(vccPin, OUTPUT);
+    digitalWrite(vccPin, HIGH);
     pinMode(heater, OUTPUT);
+
 
 #if USE_LV_LOG != 0
     lv_log_register_print_cb(my_print); /* register print function for debugging */
 #endif
-
-    pinMode(12, OUTPUT);
 
     tft.begin();        /* TFT init */
     tft.setRotation(0); /* Landscape orientation  = 1*/
@@ -304,20 +325,32 @@ void setup()
     lv_obj_t *homeTab = lv_tabview_add_tab(tv, LV_SYMBOL_HOME);
     lv_obj_t *profileTab = lv_tabview_add_tab(tv, LV_SYMBOL_SETTINGS);
     lv_obj_t *chartTab = lv_tabview_add_tab(tv, LV_SYMBOL_IMAGE);
-    lv_obj_t *miscTab = lv_tabview_add_tab(tv, LV_SYMBOL_WIFI);
+    //lv_obj_t *miscTab = lv_tabview_add_tab(tv, LV_SYMBOL_WIFI);
 
     // table, dropdown and charts
+
     createTable(profileTab, "59", "80", "102", "222");
+
     createDropdown(profileTab);
 
-    int chart1[9] = {22, 33, 44, 55, 66, 77, 88, 99, 101};
-    int chart2[9] = {11, 15, 33, 44, 55, 66, 77, 88, 99};
+    int chart1[9] = {0, 20, 20, 40, 50, 60, 80, 80, 0};
+    int chart2[9] = {0, 15, 18, 35, 55, 66, 77, 88, 0};
     createChart(chartTab, chart1, chart2);
 
     temperature_meter = lv_linemeter_create(homeTab, NULL);
     lv_obj_set_size(temperature_meter, 120, 120);
     lv_obj_align(temperature_meter, NULL, LV_ALIGN_CENTER, 0, 0);
     lv_linemeter_set_value(temperature_meter, 0);
+    
+    //Startbutton on HomeTab
+    lv_obj_t * startbtn = lv_btn_create(homeTab, NULL);
+    lv_obj_set_event_cb(startbtn, start_event_handler);
+    lv_obj_align(startbtn, NULL, LV_ALIGN_CENTER, 0, 50);
+    lv_btn_set_checkable(startbtn, true);
+    lv_btn_toggle(startbtn);
+
+    startbtnlabel = lv_label_create(startbtn, NULL);
+    lv_label_set_text(startbtnlabel, "START");
 
     temperature_label = lv_label_create(homeTab, NULL);
     lv_label_set_text(temperature_label, "N/A");
@@ -348,15 +381,11 @@ void setup()
     }
 
     //testing purposes
-    currentPhase = preheat;
-    Serial.println("temp    up    dw");
-    Serial.println("----------------");
+    currentPhase = idle;
 }
 
 void loop()
 {
-
-
     //Setting Hysteresis-limits
     float upperHys = currentTargetTemp + 0.5;
     float lowerHys = currentTargetTemp - 0.5;
@@ -392,7 +421,7 @@ void loop()
                 Serial.println("STATUS: IDLE");
                 idleMessage = true;
             }
-
+            
             break;
         case preheat:
             if (currentProfile.preheatCounter < currentProfile.preheatTime)
@@ -412,17 +441,20 @@ void loop()
             }
             break;
         case soak:
-            if (currentProfile.soakCounter < currentProfile.soakTime){
+            if (currentProfile.soakCounter < currentProfile.soakTime)
+            {
             currentTargetTemp = currentProfile.soakTemp;
 
-                if(soakMessage == false){
+                if(soakMessage == false)
+                {
                 Serial.println("STATUS: SOAK");
                 soakMessage = true;
                 }
 
             currentProfile.soakCounter++;
             }
-            else {
+            else 
+            {
                 currentProfile.soakCounter = 0;
                 soakMessage = false;
                 currentPhase = reflow;
@@ -430,7 +462,8 @@ void loop()
             break;
         case reflow:
 
-            if (currentProfile.reflowCounter < currentProfile.reflowTime){
+            if (currentProfile.reflowCounter < currentProfile.reflowTime)
+            {
 
             currentTargetTemp = currentProfile.reflowTemp;
 
@@ -442,23 +475,30 @@ void loop()
             currentProfile.reflowCounter++;
 
             }
-            else {
+            else 
+            {
                 currentProfile.reflowCounter = 0;
                 reflowMessage = false;
                 currentPhase = cooldown;
             }
             break;
         case cooldown:
-            if (cooldownMessage == false){
             digitalWrite(heater, LOW);
+            if (cooldownMessage == false){
             heaterStatus = false;
             currentTargetTemp = currentProfile.idleTemp;
-            Serial.println("STATUS: COOLDOWN"); // TODO: Add routine for what happens when cooldown initiates (buzzer etc.)
+            Serial.println("STATUS: COOLDOWN");
             cooldownMessage = true;
+            buzzer(); //TODO - Buzzerfunction
             }
             currentProfile.cooldownCounter++;
             if (currentProfile.cooldownCounter >= currentProfile.cooldownTime){
                 currentProfile.cooldownCounter = 0;
+                idleMessage = false;
+                preheatMessage = false;
+                soakMessage = false;
+                reflowMessage = false;
+                cooldownMessage = false;
                 currentPhase = idle;
             }
             break;
@@ -481,7 +521,7 @@ void loop()
             }
         if (thermocouple.readCelsius() < lowerHys)
             {
-                //keep heater on
+                //turn heater on
                 if (heaterStatus == false)
                 {
                     Serial.println("on");
@@ -492,52 +532,6 @@ void loop()
         }
     }
 
-/*
-    if (currentTime - previous1Time >= oneSecondInterval)
-    {
-        Serial.print(thermocouple.readCelsius());
-        DateTime time = rtc.now();
-        char buf2[10] = "hh:mm:ss";
-        Serial.print(" ");
-        Serial.println(time.toString(buf2));
-
-
-        if (isnan(sqrt(thermocouple.readCelsius())))
-        {
-            Serial.println("Sensor value failure");
-            // turn off heat
-            digitalWrite(heater, LOW);
-        }
-        else
-        {
-            if (thermocouple.readCelsius() > upperHys)
-            {
-                // turn off heat
-                if (heaterStatus == true)
-                {
-                    Serial.println("Heater off");
-                    digitalWrite(heater, LOW);
-                    heaterStatus = false;
-                }
-            }
-            if (thermocouple.readCelsius() < lowerHys)
-            {
-                //keep heater on
-                if (heaterStatus == false)
-                {
-                    Serial.println("Heater on");
-                    digitalWrite(heater, HIGH);
-                    heaterStatus = true;
-                }
-            }
-
-            lv_linemeter_set_value(temperature_meter, thermocouple.readCelsius());
-            updateTemperatureLabel(thermocouple.readCelsius());
-        }
-
-        previous1Time = currentTime;
-    }
-     */
 
     if (currentTime - previous2Time >= threeSecondInterval)
     {
@@ -546,8 +540,6 @@ void loop()
         lv_label_set_text(clockLabel, now.toString(buf1));
         previous2Time = currentTime;
     }
-   
-
 
     lv_task_handler();
 }
