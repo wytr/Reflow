@@ -6,9 +6,20 @@
 #include <RTClib.h>
 #include <max6675.h>
 #include <tone32.h>
+#include <PID_v1.h>
 
 #define BUZZER_PIN 40
 #define BUZZER_CHANNEL 0
+
+
+//PID
+double Setpoint, Input, Output;
+
+double Kp=2, Ki=5, Kd =1;
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+
+int WindowSize = 5000;
+unsigned long windowStartTime;
 
 //MAX6675 Sensor: DataOut, ChipSelect, Clock, VCC and Instance of MAX6675
 const int thermoDO = 26;
@@ -17,7 +28,7 @@ const int thermoCLK = 14;
 const int vccPin = 12;
 MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 //OutputPin for relay
-const int heater = 33;
+const int RELAY_PIN = 33;
 //RTC
 RTC_DS3231 rtc;
 //REFLOWPARAMETERS
@@ -74,6 +85,7 @@ static lv_obj_t *temperature_label;
 static lv_obj_t *temperature_celsius;
 static lv_obj_t *clockLabel;
 static lv_obj_t *startbtnlabel;
+static lv_obj_t *statuslabel;
 //Timerstuff
 unsigned long currentTime = 0;
 unsigned long previous1Time = 0;
@@ -85,7 +97,7 @@ float currentTargetTemp = preheat;
 //Hysteresisvalues
 float upperHys = currentTargetTemp + 0.5;
 float lowerHys = currentTargetTemp - 0.5;
-//Bool for checking if heater is on or off
+//Bool for checking if RELAY_PIN is on or off
 boolean heaterStatus = false;
 
 #if USE_LV_LOG != 0
@@ -169,7 +181,6 @@ void updateTemperatureLabel(float value)
     lv_label_set_text(temperature_label, buffer);
 }
 
-
 static void createTable(lv_obj_t *parent, char *temp1, char *temp2, char *time1, char *time2)
 {
     //TODO Set Profile Settings
@@ -234,9 +245,7 @@ static void createDropdown(lv_obj_t *parent)
     lv_obj_t *ddlist = lv_dropdown_create(parent, NULL);
     lv_dropdown_set_options(ddlist, "Profil1\n"
                                     "Profil2\n"
-                                    "Graka\n"
-                                    "Mainboard\n"
-                                    "Raspberry");
+                                    );
 
     lv_obj_align(ddlist, NULL, LV_ALIGN_IN_TOP_MID, 0, 20);
     lv_obj_set_event_cb(ddlist, profile_handler);
@@ -278,8 +287,7 @@ void setup()
 
     pinMode(vccPin, OUTPUT);
     digitalWrite(vccPin, HIGH);
-    pinMode(heater, OUTPUT);
-
+    pinMode(RELAY_PIN, OUTPUT);
 
 #if USE_LV_LOG != 0
     lv_log_register_print_cb(my_print); /* register print function for debugging */
@@ -341,11 +349,14 @@ void setup()
     lv_obj_set_size(temperature_meter, 120, 120);
     lv_obj_align(temperature_meter, NULL, LV_ALIGN_CENTER, 0, 0);
     lv_linemeter_set_value(temperature_meter, 0);
-    
+    //Statuslabel on HomeTab
+    statuslabel = lv_label_create(homeTab, NULL);
+    lv_label_set_text(statuslabel, "Status: Idle");
+    lv_obj_align(statuslabel, NULL, LV_ALIGN_IN_TOP_MID, 0, 0);
     //Startbutton on HomeTab
     lv_obj_t * startbtn = lv_btn_create(homeTab, NULL);
     lv_obj_set_event_cb(startbtn, start_event_handler);
-    lv_obj_align(startbtn, NULL, LV_ALIGN_CENTER, 0, 50);
+    lv_obj_align(startbtn, NULL, LV_ALIGN_CENTER, 0, 90);
     lv_btn_set_checkable(startbtn, true);
     lv_btn_toggle(startbtn);
 
@@ -415,7 +426,7 @@ void loop()
 
         case idle:
             currentTargetTemp = currentProfile.idleTemp;
-
+            lv_label_set_text(statuslabel, "Status: Idle");
             if (idleMessage == false)
             {
                 Serial.println("STATUS: IDLE");
@@ -424,6 +435,7 @@ void loop()
             
             break;
         case preheat:
+        lv_label_set_text(statuslabel, "Status: preheat");
             if (currentProfile.preheatCounter < currentProfile.preheatTime)
             {
                 currentTargetTemp = currentProfile.preheatTemp;
@@ -441,6 +453,7 @@ void loop()
             }
             break;
         case soak:
+            lv_label_set_text(statuslabel, "Status: soak");
             if (currentProfile.soakCounter < currentProfile.soakTime)
             {
             currentTargetTemp = currentProfile.soakTemp;
@@ -461,7 +474,7 @@ void loop()
             }
             break;
         case reflow:
-
+            lv_label_set_text(statuslabel, "Status: reflow");
             if (currentProfile.reflowCounter < currentProfile.reflowTime)
             {
 
@@ -483,7 +496,8 @@ void loop()
             }
             break;
         case cooldown:
-            digitalWrite(heater, LOW);
+            lv_label_set_text(statuslabel, "Status: cooldown");
+            digitalWrite(RELAY_PIN, LOW);
             if (cooldownMessage == false){
             heaterStatus = false;
             currentTargetTemp = currentProfile.idleTemp;
@@ -515,17 +529,17 @@ void loop()
                 if (heaterStatus == true)
                 {
                     Serial.println("off");
-                    digitalWrite(heater, LOW);
+                    digitalWrite(RELAY_PIN, LOW);
                     heaterStatus = false;
                 }
             }
         if (thermocouple.readCelsius() < lowerHys)
             {
-                //turn heater on
+                //turn RELAY_PIN on
                 if (heaterStatus == false)
                 {
                     Serial.println("on");
-                    digitalWrite(heater, HIGH);
+                    digitalWrite(RELAY_PIN, HIGH);
                     heaterStatus = true;
                 }
             }
